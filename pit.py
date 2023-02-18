@@ -1,57 +1,54 @@
-import logging
+import Arena
+from MCTS import MCTS
+from othello.OthelloGame import OthelloGame
+from othello.OthelloPlayers import *
+from othello.pytorch.NNet import NNetWrapper as NNet
 
-import coloredlogs
 
-from Coach import Coach
-from OthelloGame import OthelloGame as Game
-from othello.pytorch.NNet import NNetWrapper as nn
+import numpy as np
 from utils import *
 
-log = logging.getLogger(__name__)
+"""
+use this script to play any two agents against each other, or play manually with
+any agent.
+"""
 
-coloredlogs.install(level='INFO')  # Change this to DEBUG to see more info.
+mini_othello = True  # Play in 6x6 instead of the normal 8x8.
+human_vs_cpu = True 
 
-args = dotdict({
-    'numIters': 10,
-    'numEps': 5,              # Number of complete self-play games to simulate during a new iteration.
-    'tempThreshold': 15,        #
-    'updateThreshold': 0.3,     # During arena playoff, new neural net will be accepted if threshold or more of games are won.
-    'maxlenOfQueue': 200000,    # Number of game examples to train the neural networks.
-    'numMCTSSims': 25,          # Number of games moves for MCTS to simulate.
-    'arenaCompare': 40,         # Number of games to play during arena play to determine if new net will be accepted.
-    'cpuct': 1,
+if mini_othello:
+    g = OthelloGame(6)
+else:
+    g = OthelloGame(8)
 
-    'checkpoint': './temp/',
-    'load_model': False,
-    'load_folder_file': ('/dev/models/8x100x50','best.pth.tar'),
-    'numItersForTrainExamplesHistory': 20,
-
-})
+# all players
+rp = RandomPlayer(g).play
+gp = GreedyOthelloPlayer(g).play
+hp = HumanOthelloPlayer(g).play
 
 
-def main():
-    log.info('Loading %s...', Game.__name__)
-    g = Game(6)
 
-    log.info('Loading %s...', nn.__name__)
-    nnet = nn(g)
+# nnet players
+n1 = NNet(g)
+if mini_othello:
+    n1.load_checkpoint('./temp','checkpoint_2.pth.tar')
+else:
+    n1.load_checkpoint('./temp','checkpoint_2.pth.tar')
+args1 = dotdict({'numMCTSSims': 50, 'cpuct':1.0})
+mcts1 = MCTS(g, n1, args1)
+n1p = lambda x: np.argmax(mcts1.getActionProb(x, temp=0))
 
-    if args.load_model:
-        log.info('Loading checkpoint "%s/%s"...', args.load_folder_file[0], args.load_folder_file[1])
-        nnet.load_checkpoint(args.load_folder_file[0], args.load_folder_file[1])
-    else:
-        log.warning('Not loading a checkpoint!')
+if human_vs_cpu:
+    player2 = hp
+else:
+    n2 = NNet(g)
+    n2.load_checkpoint('./temp','checkpoint_2.pth.tar')
+    args2 = dotdict({'numMCTSSims': 50, 'cpuct': 1.0})
+    mcts2 = MCTS(g, n2, args2)
+    n2p = lambda x: np.argmax(mcts2.getActionProb(x, temp=0))
 
-    log.info('Loading the Coach...')
-    c = Coach(g, nnet, args)
+    player2 = n2p  # Player 2 is neural network if it's cpu vs cpu.
 
-    if args.load_model:
-        log.info("Loading 'trainExamples' from file...")
-        c.loadTrainExamples()
+arena = Arena.Arena(n1p, player2, g, display=OthelloGame.display)
 
-    log.info('Starting the learning process 🎉')
-    c.learn()
-
-
-if __name__ == "__main__":
-    main()
+print(arena.playGames(2, verbose=True))
